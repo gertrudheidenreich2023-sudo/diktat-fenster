@@ -49,6 +49,8 @@
   ol { list-style: none; padding: 0; margin: 8px 0 0; }
   li { padding: 8px 0; border-bottom: 1px solid var(--line); font-size: .92rem; }
   li small { color: var(--muted); display: block; }
+  li details { color: var(--muted); font-size: .88rem; margin-top: 4px; }
+  li details div { white-space: pre-wrap; }
 </style>
 </head>
 <body data-state="idle">
@@ -69,6 +71,12 @@
       <option value="whisper-large-v3">Whisper Large v3 – genauer</option>
       <option value="whisper-large-v3-turbo">Whisper Large v3 Turbo – schneller</option>
     </select>
+    <label><input id="cleanup" type="checkbox" style="width:auto"> KI-Bereinigung (Füllwörter, Versprecher, Satzzeichen)</label>
+    <label for="llmModel">Sprachmodell für die Bereinigung</label>
+    <select id="llmModel">
+      <option value="openai/gpt-oss-120b">GPT-OSS 120B – gründlicher</option>
+      <option value="openai/gpt-oss-20b">GPT-OSS 20B – schneller</option>
+    </select>
     <label for="vocab">Eigene Wörter (durch Kommas getrennt)</label>
     <textarea id="vocab" placeholder="Tegernsee, Rottach-Egern, Claude, Groq"></textarea>
     <label><input id="autoClose" type="checkbox" style="width:auto"> Fenster nach dem Kopieren automatisch schließen</label>
@@ -81,6 +89,7 @@
     <ol id="history"></ol>
   </details>
 </main>
+<script src="cleanup.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

@@ -1,4 +1,4 @@
-// Diktat-Fenster v0.1
+// Diktat-Fenster v0.2
 // Ablauf: Fenster öffnet sich (Alt+1) → Aufnahme startet automatisch →
 // Leertaste/Enter → Groq Whisper → Zwischenablage → Fenster schließt → Strg+V in der App.
 
@@ -13,7 +13,9 @@ const settings = {
   get apiKey() { return localStorage.getItem('apiKey') || ''; },
   get model() { return localStorage.getItem('model') || 'whisper-large-v3'; },
   get vocab() { return localStorage.getItem('vocab') || ''; },
-  get autoClose() { return localStorage.getItem('autoClose') !== 'false'; }
+  get autoClose() { return localStorage.getItem('autoClose') !== 'false'; },
+  get cleanup() { return localStorage.getItem('cleanup') !== 'false'; },
+  get llmModel() { return localStorage.getItem('llmModel') || 'openai/gpt-oss-120b'; }
 };
 
 let state = 'idle';
@@ -92,30 +94,40 @@ async function onStopped() {
     return;
   }
 
-  setState('processing', 'Wird umgewandelt …', '');
+  setState('processing', 'Wird erkannt …', '');
   const t0 = performance.now();
-  let text;
+  let raw;
   try {
-    text = await transcribe(blob);
+    raw = await transcribe(blob);
   } catch (e) {
     beep('error');
     setState('error', 'Fehler bei Groq', e.message);
     return;
   }
-  const latencyMs = performance.now() - t0;
+  const sttMs = performance.now() - t0;
 
-  if (!text || (text.length < 120 && HALLUCINATIONS.some((r) => r.test(text)))) {
+  if (!raw || (raw.length < 120 && HALLUCINATIONS.some((r) => r.test(raw)))) {
     setState('idle', 'Kein Text erkannt', 'Enter: neue Aufnahme');
     return;
   }
 
+  let result = { text: raw, cleaned: false, note: 'Bereinigung aus', ms: 0 };
+  if (settings.cleanup) {
+    setState('processing', 'Wird bereinigt …', '');
+    result = await cleanupText(raw, { apiKey: settings.apiKey, model: settings.llmModel, mode: 'standard', vocab: settings.vocab });
+  }
+  const text = result.text;
+  const latencyMs = sttMs + result.ms;
+
   $('result').textContent = text;
   let copied = false;
   try { await navigator.clipboard.writeText(text); copied = true; } catch {}
-  addHistory({ t: Date.now(), text, audioMs: Math.round(audioMs), latencyMs: Math.round(latencyMs) });
+  addHistory({ t: Date.now(), raw, text, cleaned: result.cleaned, note: result.note,
+    audioMs: Math.round(audioMs), sttMs: Math.round(sttMs), llmMs: result.ms });
 
   if (copied) {
-    setState('done', 'In der Zwischenablage', `Groq ${(latencyMs / 1000).toFixed(1).replace('.', ',')} s · Strg+V in der App`);
+    const hint = result.note && settings.cleanup ? ` · ${result.note}` : '';
+    setState('done', 'In der Zwischenablage', `${(latencyMs / 1000).toFixed(1).replace('.', ',')} s · Strg+V in der App${hint}`);
     if (settings.autoClose) closeSoon();
   } else {
     setState('error', 'Kopieren nicht möglich', 'Text unten markieren und mit Strg+C kopieren.');
@@ -211,6 +223,8 @@ function loadSetup() {
   $('model').value = settings.model;
   $('vocab').value = settings.vocab;
   $('autoClose').checked = settings.autoClose;
+  $('cleanup').checked = settings.cleanup;
+  $('llmModel').value = settings.llmModel;
 }
 
 $('save').onclick = () => {
@@ -218,6 +232,8 @@ $('save').onclick = () => {
   localStorage.setItem('model', $('model').value);
   localStorage.setItem('vocab', $('vocab').value.trim());
   localStorage.setItem('autoClose', String($('autoClose').checked));
+  localStorage.setItem('cleanup', String($('cleanup').checked));
+  localStorage.setItem('llmModel', $('llmModel').value);
   $('setupStatus').textContent = 'Gespeichert';
 };
 
@@ -244,9 +260,21 @@ function renderHistory() {
   for (const x of JSON.parse(localStorage.getItem('history') || '[]')) {
     const li = document.createElement('li');
     const meta = document.createElement('small');
-    meta.textContent = new Date(x.t).toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' }) +
-      ` – Aufnahme ${(x.audioMs / 1000).toFixed(1)} s, Groq ${(x.latencyMs / 1000).toFixed(1)} s`;
+    const sec = (ms) => ((ms || 0) / 1000).toFixed(1).replace('.', ',') + ' s';
+    const parts = [`Aufnahme ${sec(x.audioMs)}`, `Erkennung ${sec(x.sttMs ?? x.latencyMs)}`];
+    if (x.cleaned) parts.push(`Bereinigung ${sec(x.llmMs)}`);
+    meta.textContent = new Date(x.t).toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' }) + ' – ' + parts.join(', ');
     li.append(meta, document.createTextNode(x.text));
+    if ((x.raw && x.raw !== x.text) || x.note) {
+      const d = document.createElement('details');
+      const sm = document.createElement('summary');
+      sm.textContent = x.note ? `Rohtext (${x.note})` : 'Rohtext';
+      const r = document.createElement('div');
+      r.textContent = x.raw || '';
+      d.append(sm, r);
+      d.onclick = (ev) => ev.stopPropagation();
+      li.append(d);
+    }
     li.title = 'Klicken zum Kopieren';
     li.style.cursor = 'pointer';
     li.onclick = () => navigator.clipboard.writeText(x.text);
