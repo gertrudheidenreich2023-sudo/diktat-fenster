@@ -51,6 +51,16 @@
   li small { color: var(--muted); display: block; }
   li details { color: var(--muted); font-size: .88rem; margin-top: 4px; }
   li details div { white-space: pre-wrap; }
+  button.small { padding: 5px 11px; font-size: .88rem; }
+  #notes { margin-top: 20px; }
+  #notesActions { margin-top: 8px; }
+  #notesList li { color: var(--ink); }
+  .note-text {
+    white-space: pre-wrap; cursor: pointer; margin-top: 2px;
+    display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden;
+  }
+  .note-text.open { display: block; }
+  #notesList .row { margin-top: 6px; }
 </style>
 </head>
 <body data-state="idle">
@@ -58,9 +68,16 @@
   <div class="stage">
     <button id="dot" aria-label="Aufnahme starten oder stoppen"></button>
     <div id="msg">Bereit</div>
-    <div id="sub">Leertaste oder Enter: Aufnahme beenden · Esc: abbrechen</div>
+    <div id="sub">Leertaste: kopieren · Enter: kopieren und speichern · Esc: abbrechen · N: Notizen</div>
   </div>
   <div id="result"></div>
+
+  <details id="notes">
+    <summary>Notizen</summary>
+    <div id="notesStatus" class="status"></div>
+    <div id="notesActions" class="row"></div>
+    <ol id="notesList"></ol>
+  </details>
 
   <details id="setup">
     <summary>Einstellungen und Verlauf</summary>

@@ -1,6 +1,7 @@
-// Diktat-Fenster v0.3
+// Diktat-Fenster v0.4
 // Ablauf: Fenster öffnet sich (Alt+1) → Aufnahme startet automatisch →
-// Leertaste/Enter → Groq Whisper → Zwischenablage → Fenster schließt → Strg+V in der App.
+// Leertaste: nur Zwischenablage · Enter: Zwischenablage + Notiz als Datei im gewählten Ordner →
+// Fenster schließt → Strg+V in der App. Taste N: Notizen ansehen.
 
 const $ = (id) => document.getElementById(id);
 const MAX_MS = 5 * 60 * 1000;
@@ -22,6 +23,7 @@ const settings = {
 let state = 'idle';
 let recorder = null, stream = null, chunks = [], startedAt = 0, maxTimer = null, cancelled = false;
 let audioCtx = null;
+let saveMode = false, folderPromise = null, closeAfterCancel = true, focusQuietUntil = 0;
 
 // ---------- Anzeige ----------
 
@@ -44,6 +46,8 @@ async function start() {
   }
   $('result').textContent = '';
   cancelled = false;
+  saveMode = false;
+  folderPromise = null;
   state = 'starting'; // verhindert Doppelstart durch Laden + Fokus-Ereignis
   try {
     stream = await navigator.mediaDevices.getUserMedia({
@@ -52,6 +56,12 @@ async function start() {
   } catch (e) {
     setState('error', 'Mikrofon nicht verfügbar', 'Unter „Einstellungen" auf „Mikrofon freigeben" klicken.');
     $('setup').open = true;
+    return;
+  }
+  if (cancelled) { // während des Starts wurde ein Bereich aufgeklappt
+    stream.getTracks().forEach((t) => t.stop());
+    stream = null;
+    setState('idle', 'Bereit', 'Enter: neue Aufnahme');
     return;
   }
   chunks = [];
@@ -63,15 +73,16 @@ async function start() {
   startedAt = performance.now();
   maxTimer = setTimeout(stop, MAX_MS);
   beep('start');
-  setState('recording', 'Ich höre zu …', 'Leertaste oder Enter: fertig · Esc: abbrechen');
+  setState('recording', 'Ich höre zu …', 'Leertaste: kopieren · Enter: kopieren und speichern · Esc: abbrechen');
 }
 
 function stop() {
   if (recorder && recorder.state !== 'inactive') recorder.stop();
 }
 
-function cancel() {
+function cancel(close = true) {
   cancelled = true;
+  closeAfterCancel = close;
   stop();
 }
 
@@ -85,8 +96,8 @@ async function onStopped() {
   chunks = [];
 
   if (cancelled) {
-    setState('idle', 'Abgebrochen', '');
-    closeSoon();
+    setState('idle', 'Abgebrochen', closeAfterCancel ? '' : 'Enter: neue Aufnahme');
+    if (closeAfterCancel) closeSoon();
     return;
   }
   beep('stop');
@@ -121,18 +132,48 @@ async function onStopped() {
   const latencyMs = sttMs + result.ms;
 
   $('result').textContent = text;
+
+  // Bei Enter: erst den Ordner sicherstellen (beim ersten Mal öffnet sich die Ordnerauswahl),
+  // damit das Fenster beim Kopieren wieder den Fokus hat.
+  let folder = null, folderError = '';
+  if (saveMode) {
+    try { folder = await folderPromise; } catch (e) { folderError = e.message; }
+    if (!folder && !folderError) folderError = 'Kein Ordner freigegeben';
+  }
+
   let copied = false;
   try { await navigator.clipboard.writeText(text); copied = true; } catch {}
-  addHistory({ t: Date.now(), raw, text, cleaned: result.cleaned, note: result.note,
-    audioMs: Math.round(audioMs), sttMs: Math.round(sttMs), llmMs: result.ms });
 
-  if (copied) {
-    const hint = result.note && settings.cleanup ? ` · ${result.note}` : '';
-    setState('done', 'In der Zwischenablage', `${(latencyMs / 1000).toFixed(1).replace('.', ',')} s · Strg+V in der App${hint}`);
-    if (settings.autoClose) closeSoon();
-  } else {
-    setState('error', 'Kopieren nicht möglich', 'Text unten markieren und mit Strg+C kopieren.');
+  let savedAs = '', saveError = folderError;
+  if (folder) {
+    try { savedAs = await saveNote(folder, text); } catch (e) { saveError = e.message || e.name; }
   }
+
+  addHistory({ t: Date.now(), raw, text, cleaned: result.cleaned, note: result.note,
+    audioMs: Math.round(audioMs), sttMs: Math.round(sttMs), llmMs: result.ms, file: savedAs });
+  if (savedAs && $('notes').open) loadNotes();
+
+  const secs = `${(latencyMs / 1000).toFixed(1).replace('.', ',')} s`;
+  const hint = result.note && settings.cleanup ? ` · ${result.note}` : '';
+
+  if (saveMode && !savedAs) {
+    beep('error');
+    setState('error', copied ? 'Nicht gespeichert – nur in der Zwischenablage' : 'Nicht gespeichert und nicht kopiert',
+      `${saveError}. Text unten markieren und kopieren, dann unter „Notizen" den Ordner freigeben.`);
+    return;
+  }
+  if (!copied) {
+    setState('error', savedAs ? 'Gespeichert, aber nicht kopiert' : 'Kopieren nicht möglich',
+      'Text unten markieren und mit Strg+C kopieren.');
+    return;
+  }
+  if (savedAs) {
+    beep('saved');
+    setState('done', 'Gespeichert und in der Zwischenablage', `${secs} · ${savedAs}${hint}`);
+  } else {
+    setState('done', 'In der Zwischenablage', `${secs} · Strg+V in der App${hint}`);
+  }
+  if (settings.autoClose) closeSoon();
 }
 
 // Fenster schließen; falls ChromeOS das nicht zulässt, bleibt es einfach offen.
@@ -192,6 +233,7 @@ function tone(freq, dur, delay = 0) {
 }
 function beep(kind) {
   if (kind === 'start') { tone(880, 0.07); tone(1320, 0.07, 0.08); }
+  else if (kind === 'saved') { tone(880, 0.06); tone(1175, 0.06, 0.07); tone(1568, 0.1, 0.14); }
   else if (kind === 'stop') { tone(1320, 0.07); tone(880, 0.07, 0.08); }
   else { tone(330, 0.15); tone(330, 0.15, 0.2); }
 }
@@ -200,13 +242,22 @@ function beep(kind) {
 
 document.addEventListener('keydown', (e) => {
   const inForm = e.target.closest?.('details');
-  if (inForm) return; // in den Einstellungen normal tippen
+  if (inForm) return; // in Notizen und Einstellungen normal bedienen
   if (e.key === 'Escape') {
     e.preventDefault();
     if (state === 'recording') cancel(); else window.close();
   } else if (e.key === ' ' || e.key === 'Enter') {
     e.preventDefault();
-    if (state === 'recording') stop(); else start();
+    if (state !== 'recording') { start(); return; }
+    saveMode = e.key === 'Enter';
+    stop();
+    // Die Freigabe braucht einen Tastendruck – deshalb sofort hier anstoßen, nicht erst nach der Erkennung.
+    if (saveMode) folderPromise = getFolder(true);
+  } else if ((e.key === 'n' || e.key === 'N') && !e.ctrlKey && !e.altKey && !e.metaKey) {
+    e.preventDefault();
+    $('notes').open = true;
+    $('notes').scrollIntoView({ block: 'start' });
+    $('notes').querySelector('summary').focus();
   }
 });
 
@@ -214,8 +265,163 @@ $('dot').onclick = () => (state === 'recording' ? stop() : start());
 
 // Wird das offene Fenster per Alt+1 wieder nach vorn geholt, startet die nächste Aufnahme.
 window.addEventListener('focus', () => {
-  if ((state === 'idle' || state === 'done' || state === 'error') && !$('setup').open) start();
+  if (Date.now() < focusQuietUntil) return; // Rückkehr aus der Ordnerauswahl
+  if ($('setup').open || $('notes').open) return;
+  if (state === 'idle' || state === 'done' || state === 'error') start();
 });
+
+// Aufklappen von Notizen oder Einstellungen beendet eine laufende Aufnahme, ohne das Fenster zu schließen.
+for (const id of ['notes', 'setup']) {
+  $(id).addEventListener('toggle', () => {
+    if (!$(id).open) return;
+    if (state === 'recording' || state === 'starting') cancel(false);
+    if (id === 'notes') loadNotes();
+  });
+}
+
+// ---------- Notizen-Ordner (File System Access API) ----------
+
+function idb() {
+  return new Promise((res, rej) => {
+    const r = indexedDB.open('diktat', 1);
+    r.onupgradeneeded = () => r.result.createObjectStore('kv');
+    r.onsuccess = () => res(r.result);
+    r.onerror = () => rej(r.error);
+  });
+}
+async function kv(key, value) {
+  const db = await idb();
+  return new Promise((res, rej) => {
+    const tx = db.transaction('kv', value === undefined ? 'readonly' : 'readwrite');
+    const r = value === undefined ? tx.objectStore('kv').get(key) : tx.objectStore('kv').put(value, key);
+    r.onsuccess = () => res(r.result);
+    r.onerror = () => rej(r.error);
+  });
+}
+
+// interactive = true nur direkt nach einem Tastendruck oder Klick (Chrome verlangt das).
+async function getFolder(interactive, choose = false) {
+  const opts = { mode: 'readwrite' };
+  let dir = choose ? null : await kv('folder');
+  if (dir) {
+    if (await dir.queryPermission(opts) === 'granted') return dir;
+    if (!interactive) return null;
+    if (await dir.requestPermission(opts) === 'granted') return dir;
+    throw new Error('Ordnerzugriff nicht erlaubt');
+  }
+  if (!interactive) return null;
+  try {
+    dir = await window.showDirectoryPicker({ id: 'diktate', mode: 'readwrite', startIn: 'documents' });
+  } catch (e) {
+    throw new Error(e.name === 'AbortError' ? 'Kein Ordner gewählt' : 'Ordnerauswahl nicht möglich');
+  } finally {
+    focusQuietUntil = Date.now() + 1500;
+  }
+  await kv('folder', dir);
+  return dir;
+}
+
+function fileStamp(d) {
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}_${p(d.getHours())}-${p(d.getMinutes())}-${p(d.getSeconds())}`;
+}
+
+async function exists(dir, name) {
+  try { await dir.getFileHandle(name); return true; } catch { return false; }
+}
+
+async function saveNote(dir, text) {
+  const stamp = fileStamp(new Date());
+  let name = stamp + '.txt';
+  for (let i = 2; await exists(dir, name); i++) name = `${stamp}-${i}.txt`;
+  const fh = await dir.getFileHandle(name, { create: true });
+  const w = await fh.createWritable();
+  await w.write(text.endsWith('\n') ? text : text + '\n');
+  await w.close();
+  return name;
+}
+
+// ---------- Notizen-Übersicht ----------
+
+function btn(label, onClick, quiet = true) {
+  const b = document.createElement('button');
+  b.className = quiet ? 'btn quiet small' : 'btn small';
+  b.textContent = label;
+  b.onclick = onClick;
+  return b;
+}
+
+async function loadNotes() {
+  const status = $('notesStatus');
+  const list = $('notesList');
+  const actions = $('notesActions');
+  list.replaceChildren();
+  actions.replaceChildren();
+
+  let dir = null;
+  const stored = await kv('folder').catch(() => null);
+  try { dir = await getFolder(false); } catch {}
+
+  if (!stored) {
+    status.textContent = 'Noch kein Ordner gewählt. Lege zum Beispiel unter „Meine Dateien" einen Ordner „Diktate" an.';
+    actions.append(btn('Ordner wählen', () => chooseFolder(true), false));
+    return;
+  }
+  if (!dir) {
+    status.textContent = `Ordner „${stored.name}" braucht eine neue Freigabe.`;
+    actions.append(btn('Ordner freigeben', () => chooseFolder(false), false), btn('Anderen Ordner wählen', () => chooseFolder(true)));
+    return;
+  }
+
+  const notes = [];
+  for await (const [name, h] of dir.entries()) {
+    if (h.kind !== 'file' || !/\.(txt|md)$/i.test(name)) continue;
+    const f = await h.getFile();
+    notes.push({ name, modified: f.lastModified, text: await f.text() });
+  }
+  notes.sort((a, b) => b.modified - a.modified || b.name.localeCompare(a.name));
+
+  status.textContent = `${notes.length} ${notes.length === 1 ? 'Notiz' : 'Notizen'} in „${dir.name}"`;
+  actions.append(btn('Aktualisieren', loadNotes), btn('Anderen Ordner wählen', () => chooseFolder(true)));
+  if (!notes.length) {
+    const li = document.createElement('li');
+    li.textContent = 'Noch keine Notizen. Diktat mit Enter beenden, um eine Notiz zu speichern.';
+    list.append(li);
+    return;
+  }
+
+  for (const n of notes) {
+    const li = document.createElement('li');
+    const meta = document.createElement('small');
+    meta.textContent = new Date(n.modified).toLocaleString('de-DE', { dateStyle: 'medium', timeStyle: 'short' });
+    const body = document.createElement('div');
+    body.className = 'note-text';
+    body.textContent = n.text.trim();
+    body.title = 'Klicken zum Auf- und Zuklappen';
+    body.onclick = () => body.classList.toggle('open');
+    const row = document.createElement('div');
+    row.className = 'row';
+    const copy = btn('Kopieren', async () => {
+      try { await navigator.clipboard.writeText(n.text.trim()); copy.textContent = 'Kopiert'; }
+      catch { copy.textContent = 'Nicht möglich'; }
+      setTimeout(() => (copy.textContent = 'Kopieren'), 1500);
+    }, false);
+    const del = btn('Löschen', async () => {
+      if (!confirm(`Notiz vom ${meta.textContent} löschen?`)) return;
+      try { await dir.removeEntry(n.name); li.remove(); loadNotes(); }
+      catch (e) { alert('Löschen nicht möglich: ' + (e.message || e.name)); }
+    });
+    row.append(copy, del);
+    li.append(meta, body, row);
+    list.append(li);
+  }
+}
+
+async function chooseFolder(choose) {
+  try { await getFolder(true, choose); }
+  catch (e) { $('notesStatus').textContent = e.message; return; }
+  loadNotes();
+}
 
 // ---------- Einstellungen & Verlauf ----------
 

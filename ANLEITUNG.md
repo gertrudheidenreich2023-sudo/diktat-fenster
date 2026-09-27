@@ -50,3 +50,23 @@ Der API-Schlüssel steht **nicht** im Code, sondern nur lokal im Browser.
 8. Falls sich das Fenster nicht schließt: Startet Alt+1 bei offenem Fenster eine neue Aufnahme?
 9. Esc während der Aufnahme: Bricht es ab, ohne die Zwischenablage zu ändern?
 10. Wie lange dauert der ganze Ablauf gefühlt, von Alt+1 bis Strg+V?
+
+## 5. Notizen speichern (ab v0.4)
+
+- **Leertaste** → Text nur in die Zwischenablage (wie bisher).
+- **Enter** → Text in die Zwischenablage **und** als Notiz gespeichert: eine Textdatei pro Diktat, benannt nach Datum und Uhrzeit (z. B. `2026-09-27_14-32-05.txt`). Drei aufsteigende Töne bestätigen das Speichern.
+- **Beim ersten Enter** öffnet sich die Ordnerauswahl: unter „Meine Dateien" mit „Neuer Ordner" einen Ordner `Diktate` anlegen, auswählen, bestätigen. Fragt Chrome nach dem Zugriff, **„Bei jedem Besuch zulassen"** wählen.
+- **Taste N** (oder Klick auf „Notizen") → Übersicht aller Notizen, neueste oben. Klick auf den Text klappt ihn auf. Knöpfe: Kopieren, Löschen. Eine laufende Aufnahme wird dabei abgebrochen, das Fenster bleibt offen.
+- Die Dateien lassen sich auch direkt in der Dateien-App öffnen, verschieben oder löschen. Die Übersicht zeigt immer den aktuellen Inhalt des Ordners (auch `.md`-Dateien).
+- Falls Chrome die Freigabe einmal vergisst: In „Notizen" auf „Ordner freigeben" klicken. Bis dahin wird mit Enter nur kopiert, und das Fenster zeigt „Nicht gespeichert – nur in der Zwischenablage".
+
+### Test v0.4
+
+1. Erstes Diktat mit Enter: Öffnet sich die Ordnerauswahl? Nach der Auswahl: „Gespeichert und in der Zwischenablage", drei Töne?
+2. Liegt die Datei im Ordner, und stimmt ihr Inhalt?
+3. Strg+V in der Ziel-App: Kommt der Text an?
+4. Zweites Diktat mit Enter: Keine Rückfrage mehr?
+5. Diktat mit Leertaste: Nur kopiert, keine neue Datei?
+6. Alt+1, dann N: Wird die Aufnahme abgebrochen und die Übersicht gezeigt?
+7. Kopieren und Löschen in der Übersicht ausprobieren.
+8. Chromebook neu starten, dann Diktat mit Enter: Wird ohne Rückfrage gespeichert?
