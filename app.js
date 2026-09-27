@@ -1,4 +1,4 @@
-// Diktat-Fenster v0.2
+// Diktat-Fenster v0.3
 // Ablauf: Fenster öffnet sich (Alt+1) → Aufnahme startet automatisch →
 // Leertaste/Enter → Groq Whisper → Zwischenablage → Fenster schließt → Strg+V in der App.
 
@@ -15,6 +15,7 @@ const settings = {
   get vocab() { return localStorage.getItem('vocab') || ''; },
   get autoClose() { return localStorage.getItem('autoClose') !== 'false'; },
   get cleanup() { return localStorage.getItem('cleanup') !== 'false'; },
+  get lang() { return localStorage.getItem('lang') || ''; },
   get llmModel() { return localStorage.getItem('llmModel') || 'openai/gpt-oss-120b'; }
 };
 
@@ -148,7 +149,7 @@ async function transcribe(blob) {
   const fd = new FormData();
   fd.append('file', blob, 'diktat.webm');
   fd.append('model', settings.model);
-  fd.append('language', 'de');
+  if (settings.lang) fd.append('language', settings.lang); // leer = automatische Erkennung
   fd.append('response_format', 'json');
   fd.append('temperature', '0');
   if (settings.vocab) fd.append('prompt', settings.vocab.slice(0, 800));
@@ -225,6 +226,7 @@ function loadSetup() {
   $('autoClose').checked = settings.autoClose;
   $('cleanup').checked = settings.cleanup;
   $('llmModel').value = settings.llmModel;
+  $('lang').value = settings.lang;
 }
 
 $('save').onclick = () => {
@@ -234,6 +236,7 @@ $('save').onclick = () => {
   localStorage.setItem('autoClose', String($('autoClose').checked));
   localStorage.setItem('cleanup', String($('cleanup').checked));
   localStorage.setItem('llmModel', $('llmModel').value);
+  localStorage.setItem('lang', $('lang').value);
   $('setupStatus').textContent = 'Gespeichert';
 };
 
