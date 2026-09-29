@@ -61,6 +61,21 @@
   }
   .note-text.open { display: block; }
   #notesList .row { margin-top: 6px; }
+
+  /* Touch-Bedienung (Smartphone): nur bei Fingerbedienung sichtbar, am Chromebook unverändert */
+  #touch { display: none; width: 100%; max-width: 360px; flex-direction: column; gap: 10px; margin-top: 6px; }
+  @media (pointer: coarse) {
+    body[data-state=recording] #touch { display: flex; }
+    #dot { width: 120px; height: 120px; }
+  }
+  #touch button {
+    font: inherit; font-size: 1.15rem; font-weight: 600; border-radius: 10px;
+    padding: 16px; cursor: pointer; border: 2px solid var(--lake);
+    background: var(--lake); color: #fff; touch-action: manipulation;
+  }
+  #touch button.quiet { background: #fff; color: var(--lake); font-size: 1rem; padding: 12px; }
+  #touch button.cancel { border-color: var(--line); color: var(--muted); }
+  #touchSave[hidden] { display: none; }
 </style>
 </head>
 <body data-state="idle">
@@ -69,6 +84,11 @@
     <button id="dot" aria-label="Aufnahme starten oder stoppen"></button>
     <div id="msg">Bereit</div>
     <div id="sub">Leertaste: kopieren · Enter: kopieren und speichern · Esc: abbrechen · N: Notizen</div>
+    <div id="touch">
+      <button id="touchDone">Fertig und kopieren</button>
+      <button id="touchSave" class="quiet" hidden>Fertig, kopieren und speichern</button>
+      <button id="touchCancel" class="quiet cancel">Abbrechen</button>
+    </div>
   </div>
   <div id="result"></div>
 

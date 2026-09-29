@@ -1,4 +1,4 @@
-// Diktat-Fenster v0.4
+// Diktat-Fenster v0.5 (neu: Touch-Knöpfe fürs Smartphone)
 // Ablauf: Fenster öffnet sich (Alt+1) → Aufnahme startet automatisch →
 // Leertaste: nur Zwischenablage · Enter: Zwischenablage + Notiz als Datei im gewählten Ordner →
 // Fenster schließt → Strg+V in der App. Taste N: Notizen ansehen.
@@ -24,6 +24,9 @@ let state = 'idle';
 let recorder = null, stream = null, chunks = [], startedAt = 0, maxTimer = null, cancelled = false;
 let audioCtx = null;
 let saveMode = false, folderPromise = null, closeAfterCancel = true, focusQuietUntil = 0;
+const TOUCH = matchMedia('(pointer: coarse)').matches;
+const CAN_SAVE = 'showDirectoryPicker' in window; // auf Android nicht vorhanden
+const NEXT = TOUCH ? 'Kreis antippen: neue Aufnahme' : 'Enter: neue Aufnahme';
 
 // ---------- Anzeige ----------
 
@@ -61,7 +64,7 @@ async function start() {
   if (cancelled) { // während des Starts wurde ein Bereich aufgeklappt
     stream.getTracks().forEach((t) => t.stop());
     stream = null;
-    setState('idle', 'Bereit', 'Enter: neue Aufnahme');
+    setState('idle', 'Bereit', NEXT);
     return;
   }
   chunks = [];
@@ -73,7 +76,7 @@ async function start() {
   startedAt = performance.now();
   maxTimer = setTimeout(stop, MAX_MS);
   beep('start');
-  setState('recording', 'Ich höre zu …', 'Leertaste: kopieren · Enter: kopieren und speichern · Esc: abbrechen');
+  setState('recording', 'Ich höre zu …', TOUCH ? '' : 'Leertaste: kopieren · Enter: kopieren und speichern · Esc: abbrechen');
 }
 
 function stop() {
@@ -96,13 +99,13 @@ async function onStopped() {
   chunks = [];
 
   if (cancelled) {
-    setState('idle', 'Abgebrochen', closeAfterCancel ? '' : 'Enter: neue Aufnahme');
+    setState('idle', 'Abgebrochen', closeAfterCancel ? '' : NEXT);
     if (closeAfterCancel) closeSoon();
     return;
   }
   beep('stop');
   if (audioMs < 700 || blob.size < 2000) {
-    setState('idle', 'Nichts aufgenommen', 'Enter: neue Aufnahme');
+    setState('idle', 'Nichts aufgenommen', NEXT);
     return;
   }
 
@@ -119,7 +122,7 @@ async function onStopped() {
   const sttMs = performance.now() - t0;
 
   if (!raw || (raw.length < 120 && HALLUCINATIONS.some((r) => r.test(raw)))) {
-    setState('idle', 'Kein Text erkannt', 'Enter: neue Aufnahme');
+    setState('idle', 'Kein Text erkannt', NEXT);
     return;
   }
 
@@ -171,7 +174,7 @@ async function onStopped() {
     beep('saved');
     setState('done', 'Gespeichert und in der Zwischenablage', `${secs} · ${savedAs}${hint}`);
   } else {
-    setState('done', 'In der Zwischenablage', `${secs} · Strg+V in der App${hint}`);
+    setState('done', 'In der Zwischenablage', `${secs} · ${TOUCH ? 'in der App lange drücken und einfügen' : 'Strg+V in der App'}${hint}`);
   }
   if (settings.autoClose) closeSoon();
 }
@@ -262,6 +265,20 @@ document.addEventListener('keydown', (e) => {
 });
 
 $('dot').onclick = () => (state === 'recording' ? stop() : start());
+
+// ---------- Touch-Knöpfe (Smartphone) ----------
+
+function finish(save) {
+  if (state !== 'recording') return;
+  saveMode = save;
+  stop();
+  if (saveMode) folderPromise = getFolder(true);
+}
+$('touchDone').onclick = () => finish(false);
+$('touchSave').onclick = () => finish(true);
+$('touchCancel').onclick = () => cancel(false);
+$('touchSave').hidden = !CAN_SAVE;
+if (TOUCH) $('sub').textContent = 'Kreis antippen: Aufnahme starten';
 
 // Wird das offene Fenster per Alt+1 wieder nach vorn geholt, startet die nächste Aufnahme.
 window.addEventListener('focus', () => {
